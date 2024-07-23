@@ -1,20 +1,54 @@
 from django.shortcuts import render, get_object_or_404
-from .models import Post
-from django.core.paginator import Paginator
+from .models import Post, Comment
+from django.core.paginator import PageNotAnInteger, Paginator, EmptyPage
+from django.views.generic import ListView
+from .forms import EmailPostForm, CommentForm
+from django.core.mail import send_mail
+from django.views.decorators.http import require_POST
+from taggit.models import Tag
 
 
-def post_list(request):
+class PostListView(ListView):
+    """Альтернативное представление списка постов"""
+    # В запросе будут все посты
+    queryset = Post.published.all()
+    context_object_name = 'posts'
+    paginate_by = 5
+    template_name = 'blog/post/list.html'
+
+
+def post_list(request, tag_slug=None):
+    """
+    Список постов с тегами
+    """
     post_list = Post.published.all()
-    # Постраничная разбивка с 3 постами на страницу
-    paginator = Paginator(post_list, 2)
+    tag = None
+    if tag_slug:
+        # Извлекаются все посты со слагом данного тега
+        tag = get_object_or_404(Tag, slug=tag_slug)
+        # Фильтр
+        post_list = post_list.filter(tags__in=[tag])
+    # Постраничная разбивка с 5 постами на страницу
+    paginator = Paginator(post_list, 5)
     # Содержит запрошенный номер страницы.
     # Если page нет в GET-параметрах запроса, то загрузит 1-ю страницу
     page_number = request.GET.get('page', 1)
-    # Получаем объекты для желаемой страницы и сохраняем в posts
-    posts = paginator.page(page_number)
+    try:
+        # Получаем объекты для желаемой страницы и сохраняем в posts
+        posts = paginator.page(page_number)
+
+    except PageNotAnInteger:
+        # Если page_number не целое число,
+        # то выдать первую страницу
+        posts = paginator.page(1)
+    except EmptyPage:
+        # Если страницы не существует
+        # показать последнюю страницу (общее число страниц)
+        posts = paginator.page(paginator.num_pages)
     return render(request,
                   'blog/post/list.html',
-                  {'posts': posts})
+                  {'posts': posts,
+                   'tag': tag})
 
 
 def post_detail(request, year, month, day, post):
@@ -26,6 +60,73 @@ def post_detail(request, year, month, day, post):
                              publish__year=year,
                              publish__month=month,
                              publish__day=day)
+    # Извлечение всех активных комментов (набор QuerySet)
+    comments = post.comments.filter(active=True)
+    # Форма для комментирования пользователями
+    form = CommentForm()
+    # Вернет шаблон с указанными полями
     return render(request,
                   'blog/post/detail.html',
-                  {'post': post})
+                  {'post': post,
+                   'comments': comments,
+                   'form': form})
+
+
+def post_share(request, post_id):
+    # Извлечь пост по идентификатору
+    post = get_object_or_404(Post,
+                             id=post_id,
+                             status=Post.Status.PUBLISHED)
+    sent = False
+
+    if request.method == 'POST':
+        # Форма передана обработку
+        form = EmailPostForm(request.POST)
+        if form.is_valid():
+            # Поля формы успешно прошли валидацию
+            cd = form.cleaned_data
+            # Ссылка на пост вставится в электронное письмо
+            # URI - в HTML, XML и других файлах
+            # URL - в веб-страницах
+            post_url = request.build_absolute_uri(
+                # Формируем полный URL-адрес
+                post.get_absolute_url())
+            subject = (f"{cd['name']} recommends you read "
+                       f"{post.title}")
+            message = (f"Read \"{post.title}\" at {post_url}\n\n"
+                       f"{cd['name']}\'s comments: {cd['comments']}")
+            send_mail(subject, message, 'monstrillo6gigov@gmail.com',
+                      [cd['to']])
+            # После отправки меняем на True
+            sent = True
+
+    else:
+        form = EmailPostForm()
+
+    return render(request, 'blog/post/share.html', {'post': post,
+                                                    'form': form,
+                                                    'sent': sent})
+
+
+@require_POST
+def post_comment(request, post_id):
+    # Извлекается опубликованный пост
+    post = get_object_or_404(Post,
+                             id=post_id,
+                             status=Post.Status.PUBLISHED)
+    # Переменная для хранения комментария при его создании
+    comment = None
+    # Комментарий был отправлен
+    form = CommentForm(data=request.POST)
+    if form.is_valid():
+        # Создать объект класса Comment, не сохраняя его в БД - commit=False
+        comment = form.save(commit=False)
+        # Назначить пост комментарию
+        comment.post = post
+        # Сохранить коммент в БД
+        comment.save()
+
+    return render(request, 'blog/post/comment.html',
+                  {'post': post,
+                   'form': form,
+                   'comment': comment}, )

@@ -4,6 +4,7 @@ from django.utils import timezone
 from django.contrib.auth.models import User
 # Ищет URL заданного ресурса
 from django.urls import reverse
+from taggit.managers import TaggableManager
 
 
 class PublishedManager(models.Manager):
@@ -18,7 +19,8 @@ class Post(models.Model):
     """Хранит посты блога в БД"""
 
     class Status(models.TextChoices):
-        """Определяет варианты поста: черновик и опубликован"""
+        """Определяет варианты поста: черновик и опубликован
+        1 - отображается в БД, 2 - виджетом формы поля"""
         DRAFT = 'DF', 'Draft'
         PUBLISHED = 'PB', 'Published'
 
@@ -44,6 +46,8 @@ class Post(models.Model):
     objects = models.Manager()
     # Конкретно-прикладной менеджер
     published = PublishedManager()
+    # Добавление тегов
+    tags = TaggableManager()
 
     class Meta:
         # Сортировка постов от новых к старым
@@ -66,4 +70,25 @@ class Post(models.Model):
                              self.slug])
 
 
+class Comment(models.Model):
+    """Модель для хранения комментария"""
+    post = models.ForeignKey(Post,
+                             on_delete=models.CASCADE,
+                             related_name='comments')
+    name = models.CharField(max_length=80)
+    email = models.EmailField()
+    body = models.TextField()
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+    # Можно деактивировать неуместные комменты из админки
+    active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['created']
+        indexes = [
+            models.Index(fields=['created']),
+        ]
+
+    def __str__(self):
+        return f'Comment by {self.name} on {self.post}'
 
