@@ -9,8 +9,15 @@ https://docs.djangoproject.com/en/5.0/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.0/ref/settings/
 """
-
+import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
+
+GOOGLE_APP_PASSWORD = str(os.getenv('GOOGLE_APP_PASSWORD'))
+
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -124,6 +131,6 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Email servers
 EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_HOST_USER = 'monstrillo6gigov@gmail.com'
-EMAIL_HOST_PASSWORD = 'vnvuxlvddrnkgdap'
+EMAIL_HOST_PASSWORD = GOOGLE_APP_PASSWORD
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
