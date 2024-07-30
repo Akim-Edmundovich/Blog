@@ -2,10 +2,13 @@ from django.shortcuts import render, get_object_or_404
 from .models import Post, Comment
 from django.core.paginator import PageNotAnInteger, Paginator, EmptyPage
 from django.views.generic import ListView
-from .forms import EmailPostForm, CommentForm
+from .forms import EmailPostForm, CommentForm, SearchForm
 from django.core.mail import send_mail
 from django.views.decorators.http import require_POST
 from taggit.models import Tag
+# Общее кол-во об-тов
+from django.db.models import Count
+from django.contrib.postgres.search import TrigramSimilarity
 
 
 class PostListView(ListView):
@@ -60,16 +63,31 @@ def post_detail(request, year, month, day, post):
                              publish__year=year,
                              publish__month=month,
                              publish__day=day)
+
     # Извлечение всех активных комментов (набор QuerySet)
     comments = post.comments.filter(active=True)
+
     # Форма для комментирования пользователями
     form = CommentForm()
+
+    # Список схожих постов. flat=True - [1, 2, 3..], а не [(1,), (2,)...]
+    post_tags_ids = post.tags.values_list('id', flat=True)
+
+    # Взять все посты с этими тегами, исключая текущий пост
+    similar_posts = Post.published.filter(tags__in=post_tags_ids) \
+        .exclude(id=post.id)
+
+    # Count - генерирует число общих тегов со всеми запрошенными
+    similar_posts = similar_posts.annotate(same_tags=Count('tags')) \
+                        .order_by('-same_tags', '-publish')[:4]
+
     # Вернет шаблон с указанными полями
     return render(request,
                   'blog/post/detail.html',
                   {'post': post,
                    'comments': comments,
-                   'form': form})
+                   'form': form,
+                   'similar_posts': similar_posts})
 
 
 def post_share(request, post_id):
@@ -130,3 +148,25 @@ def post_comment(request, post_id):
                   {'post': post,
                    'form': form,
                    'comment': comment}, )
+
+
+def post_search(request):
+    form = SearchForm()
+    query = None
+    results = []
+
+    # Если запрос в словаре request.GET
+    if 'query' in request.GET:
+        form = SearchForm(request.GET)
+        if form.is_valid():
+            query = form.cleaned_data['query']
+
+            results = Post.published.annotate(
+                similarity=TrigramSimilarity('title', query),
+            ).filter(similarity__gt=0.1).order_by('-similarity')
+
+    return render(request,
+                  'blog/post/search.html',
+                  {'form': form,
+                   'query': query,
+                   'results': results})

@@ -21,3 +21,7 @@ class CommentForm(forms.ModelForm):
         model = Comment
         # Отображаемые поля
         fields = ['name', 'email', 'body']
+
+
+class SearchForm(forms.Form):
+    query = forms.CharField()
